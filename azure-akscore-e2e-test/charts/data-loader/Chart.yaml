@@ -1,0 +1,6 @@
+apiVersion: v2
+name: data-loader
+description: CronJob to simulate ADF preproc + load
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
