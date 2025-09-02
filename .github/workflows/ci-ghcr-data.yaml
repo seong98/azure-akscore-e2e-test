@@ -1,0 +1,53 @@
+# yaml — GHCR 로그인/빌드/푸시 + Helm values 태그 자동 커밋(데이터로더용)
+name: ci-ghcr-data-loader
+
+on:
+  push:
+    paths:
+      - "data-loader/**"
+      - "charts/data-loader/**"
+      - ".github/workflows/ci-ghcr-data.yaml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+env:
+  IMAGE_NAME: data-loader
+  CHART_DIR: charts/data-loader
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute owner in lowercase   # GHCR 경로용 오너명 소문자화
+        id: ow
+        run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ steps.ow.outputs.owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & Push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./data-loader
+          push: true
+          tags: ghcr.io/${{ steps.ow.outputs.owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Bump Helm image tag
+        run: |
+          sed -i "s#^  repository: .*#  repository: ghcr.io/${{ steps.ow.outputs.owner }}/${{ env.IMAGE_NAME }}#g" $CHART_DIR/values.yaml
+          sed -i "s#^  tag: .*#  tag: \"${GITHUB_SHA::7}\"#g" $CHART_DIR/values.yaml
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add $CHART_DIR/values.yaml
+          git commit -m "ci: bump ${env.IMAGE_NAME} image tag to ${GITHUB_SHA::7}" || echo "no changes"
+          git push || true
